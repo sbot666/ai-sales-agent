@@ -10,17 +10,22 @@ async def apollo_search(
     limit: int = 100,
 ) -> List[dict]:
     async with httpx.AsyncClient() as client:
-        resp = await client.post(
-            f"{APOLLO_BASE}/mixed_people/search",
-            headers={"X-Api-Key": api_key},
-            json={
-                "person_titles": titles,
-                "organization_num_employees_ranges": [f"{employee_range[0]},{employee_range[1]}"],
-                "per_page": limit,
-            },
-        )
-        resp.raise_for_status()
-        data = resp.json()
+        try:
+            resp = await client.post(
+                f"{APOLLO_BASE}/mixed_people/search",
+                headers={"X-Api-Key": api_key},
+                json={
+                    "person_titles": titles,
+                    "organization_num_employees_ranges": [f"{employee_range[0]},{employee_range[1]}"],
+                    "per_page": limit,
+                },
+            )
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"Apollo API error {e.response.status_code}: {e.response.text}") from e
+        except httpx.RequestError as e:
+            raise RuntimeError(f"Apollo request failed: {e}") from e
+
         return [
             {
                 "email": p.get("email"),
@@ -32,6 +37,6 @@ async def apollo_search(
                 "linkedin_url": p.get("linkedin_url"),
                 "source": "apollo",
             }
-            for p in data.get("people", [])
+            for p in resp.json().get("people", [])
             if p.get("email")
         ]

@@ -1,5 +1,6 @@
 import pytest
 from unittest.mock import AsyncMock, patch
+import httpx
 from tools.hunter import hunter_verify
 
 @pytest.mark.asyncio
@@ -20,3 +21,20 @@ async def test_hunter_verify_valid_email():
     assert result["status"] == "valid"
     assert result["score"] == 92
     assert result["email"] == "ceo@acme.io"
+
+@pytest.mark.asyncio
+async def test_hunter_verify_raises_on_api_error():
+    with patch("tools.hunter.httpx.AsyncClient") as mock_client_cls:
+        mock_client = AsyncMock()
+        mock_client.__aenter__ = AsyncMock(return_value=mock_client)
+        mock_client.__aexit__ = AsyncMock(return_value=False)
+        mock_resp = AsyncMock()
+        mock_resp.status_code = 403
+        mock_resp.text = "Forbidden"
+        mock_client.get = AsyncMock(
+            side_effect=httpx.HTTPStatusError("403", request=AsyncMock(), response=mock_resp)
+        )
+        mock_client_cls.return_value = mock_client
+
+        with pytest.raises(RuntimeError, match="Hunter API error"):
+            await hunter_verify("bad_key", "test@test.io")
