@@ -30,27 +30,32 @@ async def linkedin_scrape(search_url: str, cookies: List[dict], max_results: int
     leads = []
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context()
-        await context.add_cookies(cookies)
-        page = await context.new_page()
-        await page.goto(search_url, wait_until="networkidle")
+        try:
+            context = await browser.new_context()
+            await context.add_cookies(cookies)
+            page = await context.new_page()
+            await page.goto(search_url, wait_until="networkidle")
 
-        cards = await page.query_selector_all("[data-view-name='search-results-lead-result']")
-        for card in cards[:max_results]:
-            name_el = await card.query_selector(".artdeco-entity-lockup__title")
-            title_el = await card.query_selector(".artdeco-entity-lockup__subtitle")
-            company_el = await card.query_selector(".artdeco-entity-lockup__caption")
-            name = (await name_el.inner_text()).strip() if name_el else ""
-            parts = name.split(" ", 1)
-            leads.append({
-                "email": None,
-                "first_name": parts[0] if parts else "",
-                "last_name": parts[1] if len(parts) > 1 else "",
-                "title": (await title_el.inner_text()).strip() if title_el else "",
-                "company": (await company_el.inner_text()).strip() if company_el else "",
-                "company_size": None,
-                "linkedin_url": None,
-                "source": "linkedin",
-            })
-        await browser.close()
+            cards = await page.query_selector_all("[data-view-name='search-results-lead-result']")
+            for card in cards[:max_results]:
+                try:
+                    name_el = await card.query_selector(".artdeco-entity-lockup__title")
+                    title_el = await card.query_selector(".artdeco-entity-lockup__subtitle")
+                    company_el = await card.query_selector(".artdeco-entity-lockup__caption")
+                    name = (await name_el.inner_text()).strip() if name_el else ""
+                    parts = name.split(" ", 1) if name else []
+                    leads.append({
+                        "email": None,
+                        "first_name": parts[0] if parts else "",
+                        "last_name": parts[1] if len(parts) > 1 else "",
+                        "title": (await title_el.inner_text()).strip() if title_el else "",
+                        "company": (await company_el.inner_text()).strip() if company_el else "",
+                        "company_size": None,
+                        "linkedin_url": None,
+                        "source": "linkedin",
+                    })
+                except Exception:
+                    continue
+        finally:
+            await browser.close()
     return leads
