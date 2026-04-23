@@ -1,0 +1,15 @@
+name: trial-signup
+goal: Sign up for free trial
+cta: "You can start a free trial in 2 minutes here: [trial_link]"
+steps:
+  - day: 0
+    type: email
+  - day: 4
+    type: follow_up
+    note: "Highlight one specific feature relevant to their role"
+  - day: 10
+    type: follow_up
+    note: "Case study from similar company + trial reminder"
+  - day: 18
+    type: breakup
+    note: "Last chance offer — extended trial or discount"

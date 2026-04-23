@@ -1,0 +1,15 @@
+name: reply-first
+goal: Get a reply to start conversation
+cta: "Is this something you're currently thinking about? Just reply yes/no."
+steps:
+  - day: 0
+    type: email
+  - day: 3
+    type: follow_up
+    note: "Ask a single relevant question about their current process"
+  - day: 8
+    type: follow_up
+    note: "Share a relevant insight or stat, ask if it resonates"
+  - day: 15
+    type: breakup
+    note: "Low-friction breakup: offer to reconnect in 3 months"

@@ -1,0 +1,15 @@
+name: demo-book
+goal: Book a 20-minute demo call
+cta: "Would you be open to a 20-minute call this week? [calendly_link]"
+steps:
+  - day: 0
+    type: email
+  - day: 3
+    type: follow_up
+    note: "Reference initial email, add social proof (customer name/result)"
+  - day: 7
+    type: follow_up
+    note: "Last attempt, offer alternative resource if not ready"
+  - day: 14
+    type: breakup
+    note: "Breakup email — leave door open"
