@@ -1,0 +1,23 @@
+titles:
+  - CEO
+  - CTO
+  - Founder
+  - Co-founder
+  - VP Sales
+  - VP Engineering
+  - Head of Product
+  - Director of Engineering
+
+employee_range: [10, 500]
+
+geographies:
+  - US
+  - UK
+  - Canada
+  - Australia
+
+industries:
+  - B2B SaaS
+  - SaaS
+  - Software
+  - Tech

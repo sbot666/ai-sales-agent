@@ -1,0 +1,6 @@
+score_min: 60
+hot_lead_score: 80
+inbound_qualify_min: 70
+inbound_nurture_min: 40
+follow_up_days: 3
+max_follow_up_steps: 4
