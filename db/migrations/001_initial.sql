@@ -35,3 +35,6 @@ CREATE TABLE IF NOT EXISTS conversations (
     sentiment VARCHAR(50),
     created_at TIMESTAMP DEFAULT NOW()
 );
+
+CREATE INDEX IF NOT EXISTS idx_sequences_lead_id ON sequences(lead_id);
+CREATE INDEX IF NOT EXISTS idx_conversations_lead_id ON conversations(lead_id);
