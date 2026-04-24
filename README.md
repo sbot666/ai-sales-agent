@@ -1,28 +1,138 @@
 # AI Sales Agent
 
-Autonomous B2B sales agent. Finds leads, scores them, writes personalized outreach, qualifies inbound via BANT conversation, handles follow-ups.
+> Autonomous B2B sales agent powered by Claude. Finds leads, scores them against your ICP, writes personalized cold emails, qualifies inbound leads via conversation, and handles follow-ups — all without human intervention until a deal is ready to close.
 
 **Stack:** Python 3.12 · FastAPI · LangGraph · Claude (Anthropic) · PostgreSQL · Redis · SendGrid · n8n
 
 ---
 
-## What it does
+## How it works
 
-### Outbound pipeline
-1. **Lead Finder** — pulls leads from Apollo.io, Hunter.io, LinkedIn CSV
-2. **Scorer** — Claude scores each lead 1–100 against your ICP; drops anything below threshold (default 60)
-3. **Personalizer** — Claude writes a personalized cold email per lead
-4. **Outreach** — sends via SendGrid after human approval
+There are two independent pipelines that run in parallel:
 
-### Inbound pipeline
-Visitor sends a message → agent runs BANT qualification (Budget / Authority / Need / Timeline) → if score ≥ 70, sends Calendly booking link automatically.
+### Outbound — goes and finds customers
 
-### Follow-up
-Classifies reply sentiment → handles objections → books calls.
+```
+Apollo / Hunter / LinkedIn / CSV
+           │
+           ▼
+    ┌─────────────┐
+    │  Lead Finder │  Deduplicates by email across all sources
+    └──────┬──────┘
+           │
+           ▼
+    ┌─────────────┐
+    │    Scorer    │  Claude reads each lead profile and scores 1–100
+    │              │  against your ICP (config/icp.yaml)
+    │              │  Drops anything below threshold (default: 60)
+    └──────┬──────┘
+           │
+           ▼
+    ┌─────────────┐
+    │ Personalizer │  Claude writes a hyper-personalized cold email
+    │              │  per lead — references their role, company, pain
+    └──────┬──────┘
+           │
+           ▼
+    ┌─────────────┐
+    │   Outreach   │  ← HUMAN APPROVAL CHECKPOINT
+    │              │  You review draft → approve → SendGrid sends
+    └─────────────┘
+```
+
+### Inbound — qualifies people who reach out to you
+
+A visitor contacts you via chat, form, or email. The agent runs a BANT qualification conversation — one question at a time, adapting to answers — until it has enough signal to score the lead.
+
+```
+Lead writes "Hi, interested in your product"
+           │
+           ▼
+    Agent: "What's the core problem you're trying to solve?"
+           │
+    Lead answers...
+           │
+    Agent: "What budget range are you working with?"
+           │
+    Lead answers...
+           │
+    ... (collects Budget, Authority, Need, Timeline)
+           │
+           ▼
+    Score ≥ 70  →  "Great! Book 20 min: calendly.com/you/demo?email=..."
+    Score 40–69 →  Nurture sequence
+    Score < 40  →  Politely disqualified
+```
+
+**Example — real conversation output:**
+
+```json
+{
+  "qualified": true,
+  "score": 100,
+  "bant": {
+    "budget": "25K/yr",
+    "authority": "CEO",
+    "need": "automate outbound sales prospecting",
+    "timeline": "6 weeks"
+  },
+  "next_message": "Great! Book 20 min here: https://calendly.com/you/demo?email=ceo@acme.io"
+}
+```
+
+### Follow-up — handles replies automatically
+
+```
+Lead replies to cold email
+           │
+           ▼
+    Classifier: interested / objection / not interested
+           │
+    ┌──────┴───────┐
+    │              │
+ Objection      Interested
+    │              │
+ Handle it     Book call via Calendly
+ (Claude writes  + sync to HubSpot
+  a response)
+```
+
+---
+
+## Architecture
+
+```
+n8n (triggers & orchestration)
+    │
+    │  HTTP
+    ▼
+FastAPI (api/main.py)
+    │
+    │  LangGraph StateGraph
+    ▼
+┌─────────────────────────────────────┐
+│  Agent Pipeline                     │
+│  lead_finder → scorer → personalizer│
+│  → [CHECKPOINT] → outreach          │
+└─────────────────────────────────────┘
+    │
+    ├── Claude API (all intelligence)
+    ├── PostgreSQL (leads, conversations)
+    ├── Redis (state, dedup cache)
+    └── SendGrid / Calendly / HubSpot
+```
+
+All Claude prompts are plain markdown files in `prompts/` — edit them to change agent behavior without touching code.
 
 ---
 
 ## Quick start
+
+### Prerequisites
+- Python 3.12+
+- Docker or Podman
+- Anthropic API key
+- Apollo API key (for outbound lead search)
 
 ### 1. Clone and install
 
@@ -52,22 +162,38 @@ psql $DATABASE_URL -f db/migrations/001_initial.sql
 cp .env.example .env
 ```
 
-Edit `.env`:
+| Variable | Required for | Where to get |
+|----------|-------------|--------------|
+| `ANTHROPIC_API_KEY` | everything | [console.anthropic.com](https://console.anthropic.com) |
+| `ANTHROPIC_BASE_URL` | proxy users | your proxy base URL |
+| `APOLLO_API_KEY` | outbound | [apollo.io](https://apollo.io) → Settings → API |
+| `SENDGRID_API_KEY` | outbound | [sendgrid.com](https://sendgrid.com) |
+| `SENDGRID_FROM_EMAIL` | outbound | verified sender in SendGrid |
+| `CALENDLY_EVENT_URL` | inbound | your Calendly event link |
+| `HUBSPOT_ACCESS_TOKEN` | CRM sync | HubSpot private app token |
+| `SLACK_BOT_TOKEN` | alerts | Slack bot token |
+| `SCORE_MIN` | scoring | minimum score to pass (default: `60`) |
 
-| Variable | Required | Where to get |
-|----------|----------|--------------|
-| `ANTHROPIC_API_KEY` | ✅ | [console.anthropic.com](https://console.anthropic.com) |
-| `ANTHROPIC_BASE_URL` | optional | Custom proxy URL |
-| `APOLLO_API_KEY` | ✅ outbound | [apollo.io](https://apollo.io) → Settings → API |
-| `SENDGRID_API_KEY` | ✅ outbound | [sendgrid.com](https://sendgrid.com) |
-| `SENDGRID_FROM_EMAIL` | ✅ outbound | Verified sender in SendGrid |
-| `CALENDLY_EVENT_URL` | ✅ inbound | Your Calendly event link |
-| `HUBSPOT_ACCESS_TOKEN` | optional | HubSpot private app token |
-| `SLACK_BOT_TOKEN` | optional | Slack bot token |
+### 5. Define your ICP
 
-### 5. Configure your ICP
+Edit `config/icp.yaml` — this is how the scorer knows who's a good lead:
 
-Edit `config/icp.yaml` — define your ideal customer profile (industry, company size, titles, keywords). The scorer uses this to rank leads.
+```yaml
+industries:
+  - SaaS
+  - B2B Software
+titles:
+  - CEO
+  - VP Sales
+  - Head of Growth
+company_size:
+  min: 10
+  max: 500
+keywords:
+  - sales automation
+  - outbound
+  - lead generation
+```
 
 ### 6. Start the API
 
@@ -75,97 +201,102 @@ Edit `config/icp.yaml` — define your ideal customer profile (industry, company
 uvicorn api.main:app --port 8000 --reload
 ```
 
-Check: `http://localhost:8000/health`
+Health check: `curl http://localhost:8000/health`
 
 ---
 
-## API
+## API reference
 
-### Run outbound campaign
+### Outbound — run a campaign
+
 ```bash
 curl -X POST http://localhost:8000/api/run/outbound \
   -H "Content-Type: application/json" \
-  -d '{"apollo_query": {"job_titles": ["CEO", "VP Sales"], "industries": ["SaaS"]}}'
+  -d '{
+    "apollo_query": {
+      "job_titles": ["CEO", "VP Sales"],
+      "industries": ["SaaS"],
+      "employee_ranges": ["11,50", "51,200"]
+    }
+  }'
 ```
 
-### Inbound qualifier (chat)
+### Inbound — qualify a lead (stateless, call on each message)
+
 ```bash
 curl -X POST http://localhost:8000/api/run/inbound \
   -H "Content-Type: application/json" \
   -d '{
     "email": "lead@company.com",
-    "messages": [{"role": "user", "content": "Hi, interested in your product"}]
+    "messages": [
+      {"role": "user", "content": "Hi, interested in your product"},
+      {"role": "assistant", "content": "What core problem are you trying to solve?"},
+      {"role": "user", "content": "We need to automate our SDR team"}
+    ]
   }'
 ```
 
-Response while collecting BANT:
-```json
-{"qualified": null, "next_message": "What's the core problem you're trying to solve?"}
-```
-
-Response when done:
-```json
-{
-  "qualified": true,
-  "score": 85,
-  "bant": {"budget": "25K/yr", "authority": "CEO", "need": "automate outreach", "timeline": "6 weeks"},
-  "next_message": "Great! Book 20 minutes here: https://calendly.com/..."
-}
-```
+Pass the full conversation history each time. The agent remembers nothing — you own the state.
 
 ### Approve outreach draft
+
 ```bash
 curl -X POST http://localhost:8000/api/approve \
   -H "Content-Type: application/json" \
-  -d '{"lead_id": 1, "approved": true}'
+  -d '{"lead_id": 42, "approved": true}'
 ```
 
 ### Handle email reply
+
 ```bash
 curl -X POST http://localhost:8000/api/reply \
   -H "Content-Type: application/json" \
-  -d '{"lead_id": 1, "reply_text": "Sounds interesting, tell me more"}'
+  -d '{"lead_id": 42, "reply_text": "Sounds interesting, tell me more"}'
 ```
 
 ---
 
-## n8n workflows
+## n8n automation
 
-Import JSON files from `n8n/workflows/` into your n8n instance:
+Import workflows from `n8n/workflows/` into your n8n instance to automate triggers:
 
-| File | Trigger | What it does |
-|------|---------|--------------|
-| `outbound-run.json` | Schedule / manual | Runs outbound pipeline |
-| `inbound-intake.json` | Webhook | Receives inbound messages, calls `/api/run/inbound` |
+| Workflow | Trigger | Does |
+|----------|---------|------|
+| `outbound-run.json` | Cron / manual | Runs full outbound pipeline |
+| `inbound-intake.json` | Webhook | Routes inbound messages to qualifier |
 | `csv-upload.json` | File drop | Imports leads from CSV |
-| `reply-tracker.json` | Email webhook | Forwards replies to `/api/reply` |
-| `crm-sync.json` | Pipeline event | Syncs qualified leads to HubSpot |
-| `slack-alert.json` | Pipeline event | Posts hot leads to Slack |
+| `reply-tracker.json` | Email webhook | Sends replies to follow-up agent |
+| `crm-sync.json` | Lead qualified | Syncs hot leads to HubSpot |
+| `slack-alert.json` | Lead qualified | Posts to `#sales-alerts` Slack channel |
+
+---
+
+## Customizing behavior
+
+Everything Claude does is controlled by markdown prompts — no code changes needed:
+
+| File | Controls |
+|------|---------|
+| `prompts/scorer.md` | How leads are scored, what signals matter |
+| `prompts/personalizer.md` | Email tone, structure, personalization depth |
+| `prompts/inbound_qualifier.md` | BANT question flow, scoring rules |
+| `prompts/follow_up.md` | Objection handling, reply classification |
+| `config/sequences/` | Email sequence configs per goal (demo, trial, reply) |
 
 ---
 
 ## Project structure
 
 ```
-agents/          LangGraph nodes (scorer, personalizer, outreach, follow_up, inbound_qualifier)
-api/             FastAPI app + endpoints
-config/          ICP definition, scoring thresholds, email sequences
-db/              SQLAlchemy models + migrations
-n8n/workflows/   n8n workflow JSONs
-prompts/         Claude system prompts (markdown)
-tools/           API clients (Apollo, Hunter, SendGrid, Calendly, HubSpot)
+agents/          LangGraph nodes — one file per agent
+api/             FastAPI app and all endpoints
+config/          ICP, thresholds, email sequences
+db/              SQLAlchemy models + Postgres migration
+n8n/workflows/   Ready-to-import n8n JSONs
+prompts/         Claude system prompts (plain markdown)
+tools/           API clients: Apollo, Hunter, SendGrid, Calendly, HubSpot
+tests/           Full test suite
 ```
-
----
-
-## Customizing prompts
-
-All Claude instructions live in `prompts/` as plain markdown files — edit them directly:
-
-- `prompts/scorer.md` — lead scoring criteria
-- `prompts/personalizer.md` — email writing style
-- `prompts/inbound_qualifier.md` — BANT conversation flow
-- `prompts/follow_up.md` — objection handling
 
 ---
 
