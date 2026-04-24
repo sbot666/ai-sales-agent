@@ -15,12 +15,22 @@ async def inbound_qualifier_node(state: dict) -> dict:
     client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY", ""))
     system_prompt = PROMPT.replace("[calendly_link]", f"{calendly_url}?email={email}")
 
+    # Inject system prompt as opening exchange (proxy compatibility)
+    prefixed_messages = [
+        {"role": "user", "content": f"<instructions>\n{system_prompt}\n</instructions>"},
+        {"role": "assistant", "content": "Understood. I am a B2B SaaS sales qualification specialist. I will conduct BANT qualification and respond ONLY with valid JSON as specified."},
+        *messages,
+    ]
+
     response = client.messages.create(
         model="claude-sonnet-4-6",
         max_tokens=512,
-        system=[{"type": "text", "text": system_prompt, "cache_control": {"type": "ephemeral"}}],
-        messages=messages,
+        messages=prefixed_messages,
     )
 
-    result = json.loads(response.content[0].text)
+    raw_text = response.content[0].text.strip()
+    try:
+        result = json.loads(raw_text)
+    except json.JSONDecodeError:
+        result = {"qualified": None, "next_message": raw_text}
     return {"inbound_result": result}
